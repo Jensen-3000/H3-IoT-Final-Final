@@ -187,7 +187,6 @@
             label: "Button Press Count",
             data: [],
             borderColor: "rgb(75, 192, 192)",
-            tension: 0.5,
           },
         ],
       };
@@ -203,8 +202,18 @@
           options: {
             responsive: true,
             scales: {
+              x: {
+                ticks: {
+                  autoSkip: true,
+                  maxRotation: 45,
+                  minRotation: 45,
+                },
+              },
               y: {
                 beginAtZero: true,
+                ticks: {
+                  stepSize: 1,
+                },
               },
             },
           },

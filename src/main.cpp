@@ -34,6 +34,7 @@ bool waitForNTPSync(int maxAttempts = 10);
 
 void handleRootRequest(AsyncWebServerRequest *request);
 void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
+void handleServiceModeRequest(AsyncWebServerRequest *request);
 
 // Structs
 struct Button
@@ -84,13 +85,13 @@ void loop()
   handleOnButtonPress();
   processFifoBuffer();
 
-  String content = readFileContents(config::ButtonLogPath);
-  if (!content.isEmpty())
-  {
-    Serial.println(content);
-    // ws.textAll(content);
-    delay(2000);
-  }
+  // String content = readFileContents(config::ButtonLogPath);
+  // if (!content.isEmpty())
+  // {
+  //   Serial.println(content);
+  //   // ws.textAll(content);
+  //   delay(2000);
+  // }
 }
 
 // Function Implementations
@@ -204,6 +205,7 @@ bool waitForNTPSync(int maxAttempts)
 void setupWebServer()
 {
   server.on("/", HTTP_GET, handleRootRequest);
+  server.on("/serviceMode", HTTP_POST, handleServiceModeRequest);
 
   ws.onEvent(handleWebSocketEvent);
 
@@ -240,6 +242,27 @@ void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, 
 
     file.close();
   }
+}
+
+void handleServiceModeRequest(AsyncWebServerRequest *request)
+{
+  if (!request->hasParam("action", true))
+  {
+    request->send(400, "text/plain", "Action parameter missing");
+    return;
+  }
+
+  String action = request->getParam("action", true)->value();
+  if (action == "reset")
+  {
+    // Clear the button log
+    SPIFFS.remove(config::ButtonLogPath);
+    button1.numberOfPresses = 0;
+    request->send(200, "text/plain", "Data reset successfully");
+    return;
+  }
+
+  request->send(400, "text/plain", "Invalid action");
 }
 
 // File handling functions
