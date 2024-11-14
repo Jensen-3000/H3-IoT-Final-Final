@@ -55,11 +55,6 @@
             >
           </li>
           <li class="nav-item">
-            <a class="nav-link" href="#" data-section="wifiConfigSection"
-              >WiFi Configuration</a
-            >
-          </li>
-          <li class="nav-item">
             <a class="nav-link" href="#" data-section="serviceModeSection"
               >Service Mode</a
             >
@@ -91,32 +86,6 @@
       </div>
     </div>
 
-    <!-- WiFi Config Form -->
-    <div class="container" id="wifiConfigSection">
-      <h3>WiFi Configuration</h3>
-      <div class="card">
-        <div class="card-body">
-          <form id="wifiConfigForm">
-            <div class="form-group">
-              <label for="ssid">SSID:</label>
-              <input type="text" class="form-control" id="ssid" name="ssid" required />
-            </div>
-            <div class="form-group">
-              <label for="password">Password:</label>
-              <input
-                type="password"
-                class="form-control"
-                id="password"
-                name="password"
-                required
-              />
-            </div>
-            <button type="submit" class="btn btn-primary">Save</button>
-          </form>
-        </div>
-      </div>
-    </div>
-
     <!-- Service Mode Form -->
     <div class="container" id="serviceModeSection" style="display: none">
       <h3>Service Mode</h3>
@@ -127,6 +96,7 @@
               <label for="action">Action:</label>
               <select class="form-control" id="action" name="action">
                 <option value="reset">Reset Data</option>
+                <option value="resetWiFi">Reset WiFi</option>
               </select>
             </div>
             <button type="submit" class="btn btn-danger">Execute</button>
@@ -168,14 +138,6 @@
           chart.update();
         }
       };
-
-      // Handle WiFi Config Form submission
-      $("#wifiConfigForm").submit(function (event) {
-        event.preventDefault();
-        $.post("/wifiConfig", $(this).serialize(), function (response) {
-          alert(response);
-        });
-      });
 
       // Handle Service Mode Form submission
       $("#serviceModeForm").submit(function (event) {

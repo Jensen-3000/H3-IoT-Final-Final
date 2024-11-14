@@ -1,9 +1,10 @@
+#include <WiFiManager.h>
 #include <Arduino.h>
 #include <FS.h>
 #include <SPIFFS.h>
 #include <WiFi.h>
-#include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <time.h>
 #include "config.h"
@@ -29,7 +30,6 @@ String readFileContents(const String &filename);
 
 // Initialization Functions
 void setupWebServer();
-void setupWiFi();
 void setupNTP();
 bool waitForNTPSync(int maxAttempts = 10);
 
@@ -60,30 +60,33 @@ void processFifoBuffer();
 
 unsigned long loadButtonCountFromFile();
 
-void setupWiFi();
-void startAccessPoint();
-void saveWiFiConfig(const String &ssid, const String &password);
-
 // Setup Function
 void setup()
 {
   Serial.begin(115200);
   SPIFFS.begin(true);
 
-  // Check if WiFi credentials are available
-  String wifiConfig = readFileContents(config::wifiConfigFile);
-  if (wifiConfig.isEmpty())
+  // Initialize WiFiManager
+  WiFiManager wm;
+  // wm.resetSettings();
+
+  bool res = wm.autoConnect();
+
+  if (!res)
   {
-    // If no WiFi config, start AP mode
-    isAccessPointMode = true;
-    startAccessPoint();
+    Serial.println("Failed to connect");
+    // ESP.restart();
   }
   else
   {
-    setupWiFi();
-    setupNTP();
+    Serial.println("Connected to WiFi");
   }
 
+  // Stop WiFiManager web server
+  wm.stopConfigPortal();
+  delay(1000);
+
+  setupNTP();
   setupWebServer();
 
   pinMode(button1.PIN, INPUT_PULLUP);
@@ -101,14 +104,6 @@ void loop()
 
   handleOnButtonPress();
   processFifoBuffer();
-
-  // String content = readFileContents(config::ButtonLogPath);
-  // if (!content.isEmpty())
-  // {
-  //   Serial.println(content);
-  //   // ws.textAll(content);
-  //   delay(2000);
-  // }
 }
 
 // Function Implementations
@@ -165,44 +160,12 @@ void processFifoBuffer()
   }
 }
 
-// WiFi setup
+// Web Server setup
 
 void setupWebServer()
 {
   server.on("/", HTTP_GET, handleRootRequest);
   server.on("/serviceMode", HTTP_POST, handleServiceModeRequest);
-
-  server.on("/wifiConfig", HTTP_POST, [](AsyncWebServerRequest *request)
-            {
-        if (!request->hasParam("ssid", true) || !request->hasParam("password", true))
-        {
-            request->send(400, "text/plain", "Missing SSID or password");
-            return;
-        }
-
-        String ssid = request->getParam("ssid", true)->value();
-        String password = request->getParam("password", true)->value();
-        
-        // Save the credentials to SPIFFS
-        saveWiFiConfig(ssid, password);
-
-        // Connect to the new WiFi
-        WiFi.begin(ssid.c_str(), password.c_str());
-        unsigned long startTime = millis();
-        while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000)
-        {
-            delay(100);
-        }
-
-        if (WiFi.status() == WL_CONNECTED)
-        {
-            request->send(200, "text/plain", "WiFi Configured! Rebooting...");
-            ESP.restart(); // Reboot to apply the new WiFi settings
-        }
-        else
-        {
-            request->send(500, "text/plain", "Failed to connect to WiFi");
-        } });
 
   ws.onEvent(handleWebSocketEvent);
   server.addHandler(&ws);
@@ -210,20 +173,10 @@ void setupWebServer()
   Serial.println("Web server started");
 }
 
-void startAccessPoint()
-{
-  WiFi.softAP("ESP32-Setup", "123456789");
-  Serial.println("Access Point Started. Connect to the AP with SSID: ESP32-Setup and password: 123456789");
-
-  setupWebServer(); // Start the web server to handle SSID/password input page
-}
-
-/// NTP setup
+// NTP setup
 
 void setupNTP()
 {
-  if (isAccessPointMode) return; // Skip NTP setup in AP mode
-
   configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
   if (!waitForNTPSync())
   {
@@ -248,56 +201,6 @@ bool waitForNTPSync(int maxAttempts)
   }
   Serial.println("\nFailed to sync with NTP server!");
   return false;
-}
-
-void setupWiFi()
-{
-  // Check if WiFi credentials are available
-  String wifiConfig = readFileContents(config::wifiConfigFile);
-  if (wifiConfig.isEmpty())
-  {
-    // If no WiFi config, start AP mode
-    startAccessPoint();
-  }
-  else
-  {
-    // Parse the saved SSID and password
-    JsonDocument doc;
-    deserializeJson(doc, wifiConfig);
-    const char *ssid = doc["ssid"];
-    const char *password = doc["password"];
-
-    WiFi.begin(ssid, password);
-    Serial.print("Connecting to WiFi...");
-    unsigned long startTime = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000)
-    {
-      Serial.print(".");
-      delay(100);
-    }
-
-    if (WiFi.status() != WL_CONNECTED)
-    {
-      Serial.println("\nFailed to connect to WiFi");
-    }
-    else
-    {
-      Serial.println("\nConnected to WiFi");
-      Serial.println("IP Address: " + WiFi.localIP().toString());
-    }
-  }
-}
-
-void saveWiFiConfig(const String &ssid, const String &password)
-{
-  JsonDocument doc;
-  doc["ssid"] = ssid;
-  doc["password"] = password;
-
-  String jsonString;
-  serializeJson(doc, jsonString);
-
-  appendToFile(config::wifiConfigFile, jsonString); // Save config to file
 }
 
 void handleRootRequest(AsyncWebServerRequest *request)
@@ -345,6 +248,16 @@ void handleServiceModeRequest(AsyncWebServerRequest *request)
     SPIFFS.remove(config::ButtonLogPath);
     button1.numberOfPresses = 0;
     request->send(200, "text/plain", "Data reset successfully");
+    return;
+  }
+  else if (action == "resetWiFi")
+  {
+    // Reset WiFi settings
+    request->send(200, "text/plain", "WiFi settings reset successfully. Rebooting...");
+    WiFiManager wm;
+    wm.resetSettings();
+    delay(1000);
+    ESP.restart();
     return;
   }
 
