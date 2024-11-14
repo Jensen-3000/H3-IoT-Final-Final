@@ -17,13 +17,14 @@ const int DAYLIGHT_OFFSET_SEC = 3600;
 
 // Globals
 std::queue<String> buttonLog;
+bool isAccessPointMode = false;
 
 // Web Server
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
 // Utility Functions
-void writeToFile(const String &filename, const String &data);
+void appendToFile(const String &filename, const String &data);
 String readFileContents(const String &filename);
 
 // Initialization Functions
@@ -59,14 +60,30 @@ void processFifoBuffer();
 
 unsigned long loadButtonCountFromFile();
 
+void setupWiFi();
+void startAccessPoint();
+void saveWiFiConfig(const String &ssid, const String &password);
+
 // Setup Function
 void setup()
 {
   Serial.begin(115200);
   SPIFFS.begin(true);
 
-  setupWiFi();
-  setupNTP();
+  // Check if WiFi credentials are available
+  String wifiConfig = readFileContents(config::wifiConfigFile);
+  if (wifiConfig.isEmpty())
+  {
+    // If no WiFi config, start AP mode
+    isAccessPointMode = true;
+    startAccessPoint();
+  }
+  else
+  {
+    setupWiFi();
+    setupNTP();
+  }
+
   setupWebServer();
 
   pinMode(button1.PIN, INPUT_PULLUP);
@@ -144,38 +161,69 @@ void processFifoBuffer()
     serializeJson(doc, jsonString);
 
     ws.textAll(jsonString);
-    writeToFile(config::ButtonLogPath, jsonString);
+    appendToFile(config::ButtonLogPath, jsonString);
   }
 }
 
 // WiFi setup
 
-void setupWiFi()
+void setupWebServer()
 {
-  WiFi.begin(config::ssid, config::password);
-  Serial.print("Connecting to WiFi...");
-  unsigned long startTime = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000)
-  {
-    Serial.print(".");
-    delay(100);
-  }
+  server.on("/", HTTP_GET, handleRootRequest);
+  server.on("/serviceMode", HTTP_POST, handleServiceModeRequest);
 
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.println("\nFailed to connect to WiFi");
-  }
-  else
-  {
-    Serial.println("\nConnected to WiFi");
-    Serial.println("IP Address: " + WiFi.localIP().toString());
-  }
+  server.on("/wifiConfig", HTTP_POST, [](AsyncWebServerRequest *request)
+            {
+        if (!request->hasParam("ssid", true) || !request->hasParam("password", true))
+        {
+            request->send(400, "text/plain", "Missing SSID or password");
+            return;
+        }
+
+        String ssid = request->getParam("ssid", true)->value();
+        String password = request->getParam("password", true)->value();
+        
+        // Save the credentials to SPIFFS
+        saveWiFiConfig(ssid, password);
+
+        // Connect to the new WiFi
+        WiFi.begin(ssid.c_str(), password.c_str());
+        unsigned long startTime = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000)
+        {
+            delay(100);
+        }
+
+        if (WiFi.status() == WL_CONNECTED)
+        {
+            request->send(200, "text/plain", "WiFi Configured! Rebooting...");
+            ESP.restart(); // Reboot to apply the new WiFi settings
+        }
+        else
+        {
+            request->send(500, "text/plain", "Failed to connect to WiFi");
+        } });
+
+  ws.onEvent(handleWebSocketEvent);
+  server.addHandler(&ws);
+  server.begin();
+  Serial.println("Web server started");
+}
+
+void startAccessPoint()
+{
+  WiFi.softAP("ESP32-Setup", "123456789");
+  Serial.println("Access Point Started. Connect to the AP with SSID: ESP32-Setup and password: 123456789");
+
+  setupWebServer(); // Start the web server to handle SSID/password input page
 }
 
 /// NTP setup
 
 void setupNTP()
 {
+  if (isAccessPointMode) return; // Skip NTP setup in AP mode
+
   configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
   if (!waitForNTPSync())
   {
@@ -202,16 +250,54 @@ bool waitForNTPSync(int maxAttempts)
   return false;
 }
 
-void setupWebServer()
+void setupWiFi()
 {
-  server.on("/", HTTP_GET, handleRootRequest);
-  server.on("/serviceMode", HTTP_POST, handleServiceModeRequest);
+  // Check if WiFi credentials are available
+  String wifiConfig = readFileContents(config::wifiConfigFile);
+  if (wifiConfig.isEmpty())
+  {
+    // If no WiFi config, start AP mode
+    startAccessPoint();
+  }
+  else
+  {
+    // Parse the saved SSID and password
+    JsonDocument doc;
+    deserializeJson(doc, wifiConfig);
+    const char *ssid = doc["ssid"];
+    const char *password = doc["password"];
 
-  ws.onEvent(handleWebSocketEvent);
+    WiFi.begin(ssid, password);
+    Serial.print("Connecting to WiFi...");
+    unsigned long startTime = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000)
+    {
+      Serial.print(".");
+      delay(100);
+    }
 
-  server.addHandler(&ws);
-  server.begin();
-  Serial.println("Web server started");
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      Serial.println("\nFailed to connect to WiFi");
+    }
+    else
+    {
+      Serial.println("\nConnected to WiFi");
+      Serial.println("IP Address: " + WiFi.localIP().toString());
+    }
+  }
+}
+
+void saveWiFiConfig(const String &ssid, const String &password)
+{
+  JsonDocument doc;
+  doc["ssid"] = ssid;
+  doc["password"] = password;
+
+  String jsonString;
+  serializeJson(doc, jsonString);
+
+  appendToFile(config::wifiConfigFile, jsonString); // Save config to file
 }
 
 void handleRootRequest(AsyncWebServerRequest *request)
@@ -267,7 +353,7 @@ void handleServiceModeRequest(AsyncWebServerRequest *request)
 
 // File handling functions
 
-void writeToFile(const String &filename, const String &data)
+void appendToFile(const String &filename, const String &data)
 {
   File file = SPIFFS.open(filename, FILE_APPEND);
   if (!file)
@@ -276,6 +362,18 @@ void writeToFile(const String &filename, const String &data)
     return;
   }
   file.println(data);
+  file.close();
+}
+
+void writeToFile(const String &filename, const String &data)
+{
+  File file = SPIFFS.open(filename, FILE_WRITE);
+  if (!file)
+  {
+    Serial.println("Failed to open file for writing");
+    return;
+  }
+  file.print(data);
   file.close();
 }
 

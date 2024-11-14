@@ -55,6 +55,11 @@
             >
           </li>
           <li class="nav-item">
+            <a class="nav-link" href="#" data-section="wifiConfigSection"
+              >WiFi Configuration</a
+            >
+          </li>
+          <li class="nav-item">
             <a class="nav-link" href="#" data-section="serviceModeSection"
               >Service Mode</a
             >
@@ -94,7 +99,7 @@
           <form id="wifiConfigForm">
             <div class="form-group">
               <label for="ssid">SSID:</label>
-              <input type="text" class="form-control" id="ssid" name="ssid" />
+              <input type="text" class="form-control" id="ssid" name="ssid" required />
             </div>
             <div class="form-group">
               <label for="password">Password:</label>
@@ -103,6 +108,7 @@
                 class="form-control"
                 id="password"
                 name="password"
+                required
               />
             </div>
             <button type="submit" class="btn btn-primary">Save</button>
