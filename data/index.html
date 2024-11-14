@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Button Meter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Include Bootstrap CSS -->
+    <link
+      rel="stylesheet"
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      body {
+        padding-top: 56px;
+      }
+
+      .navbar-brand {
+        font-size: 1.5rem;
+      }
+
+      .container {
+        margin-top: 20px;
+      }
+
+      .card {
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Collapsible menu -->
+    <nav class="navbar navbar-expand-md bg-dark navbar-dark fixed-top">
+      <a class="navbar-brand" href="#">Button Meter</a>
+      <button
+        class="navbar-toggler"
+        type="button"
+        data-toggle="collapse"
+        data-target="#collapsibleNavbar"
+      >
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="collapsibleNavbar">
+        <ul class="navbar-nav">
+          <!-- Menu items -->
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-section="onlineDataSection"
+              >Online Data</a
+            >
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-section="graphSection"
+              >Consumption Graph</a
+            >
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-section="serviceModeSection"
+              >Service Mode</a
+            >
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <!-- Online data field -->
+    <div class="container" id="onlineDataSection">
+      <h3>Online Data</h3>
+      <div class="card">
+        <div class="card-body">
+          <p>
+            Last Button Pressed Update: <span id="buttonPressTimestamp">-</span>
+          </p>
+          <p>Button Pressed Count: <span id="buttonPressCount">-</span></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Consumption graph -->
+    <div class="container" id="graphSection" style="display: none">
+      <h3>Accumulated Consumption</h3>
+      <div class="card">
+        <div class="card-body">
+          <canvas id="consumptionGraph"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- WiFi Config Form -->
+    <div class="container" id="wifiConfigSection">
+      <h3>WiFi Configuration</h3>
+      <div class="card">
+        <div class="card-body">
+          <form id="wifiConfigForm">
+            <div class="form-group">
+              <label for="ssid">SSID:</label>
+              <input type="text" class="form-control" id="ssid" name="ssid" />
+            </div>
+            <div class="form-group">
+              <label for="password">Password:</label>
+              <input
+                type="password"
+                class="form-control"
+                id="password"
+                name="password"
+              />
+            </div>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Service Mode Form -->
+    <div class="container" id="serviceModeSection" style="display: none">
+      <h3>Service Mode</h3>
+      <div class="card">
+        <div class="card-body">
+          <form id="serviceModeForm">
+            <div class="form-group">
+              <label for="action">Action:</label>
+              <select class="form-control" id="action" name="action">
+                <option value="reset">Reset Data</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-danger">Execute</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Include jQuery and Bootstrap JS -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <!-- WebSocket script -->
+    <script>
+      var ws = new WebSocket("ws://" + window.location.hostname + "/ws");
+
+      ws.onmessage = function (event) {
+        const data = JSON.parse(event.data);
+
+        console.log("New data received:", data);
+
+        // Update timestamp and count
+        document.getElementById("buttonPressTimestamp").textContent =
+          data.buttonPressTimestamp;
+        document.getElementById("buttonPressCount").textContent =
+          data.buttonPressCount;
+
+        // Update the graph data
+        buttonPressData.labels.push(data.buttonPressTimestamp);
+        buttonPressData.datasets[0].data.push(data.buttonPressCount);
+
+        // Limit chart to 20 data points
+        if (buttonPressData.labels.length > 20) {
+          buttonPressData.labels.shift();
+          buttonPressData.datasets[0].data.shift();
+        }
+
+        // Update the chart
+        if (chart) {
+          chart.update();
+        }
+      };
+
+      // Handle WiFi Config Form submission
+      $("#wifiConfigForm").submit(function (event) {
+        event.preventDefault();
+        $.post("/wifiConfig", $(this).serialize(), function (response) {
+          alert(response);
+        });
+      });
+
+      // Handle Service Mode Form submission
+      $("#serviceModeForm").submit(function (event) {
+        event.preventDefault();
+        $.post("/serviceMode", $(this).serialize(), function (response) {
+          alert(response);
+        });
+      });
+
+      let chart;
+      const buttonPressData = {
+        labels: [],
+        datasets: [
+          {
+            label: "Button Press Count",
+            data: [],
+            borderColor: "rgb(75, 192, 192)",
+            tension: 0.5,
+          },
+        ],
+      };
+
+      // Initialize chart
+      function initChart() {
+        const ctx = document
+          .getElementById("consumptionGraph")
+          .getContext("2d");
+        chart = new Chart(ctx, {
+          type: "line",
+          data: buttonPressData,
+          options: {
+            responsive: true,
+            scales: {
+              y: {
+                beginAtZero: true,
+              },
+            },
+          },
+        });
+      }
+
+      // Menu handling
+      document.querySelectorAll(".nav-link").forEach((link) => {
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          const sectionId = e.target.getAttribute("data-section");
+
+          document.querySelectorAll(".container").forEach((section) => {
+            section.style.display = "none";
+          });
+
+          document.getElementById(sectionId).style.display = "block";
+        });
+      });
+
+      // Initialize chart when page loads
+      initChart();
+    </script>
+  </body>
+</html>
