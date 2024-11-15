@@ -1,3 +1,10 @@
+/**
+ * @file main.cpp
+ * @brief IoT Button Press Logger with Web Interface
+ * @details This system logs button presses with timestamps and provides a web interface
+ * for monitoring and configuration.
+ */
+
 #include <WiFiManager.h>
 #include <Arduino.h>
 #include <FS.h>
@@ -10,34 +17,31 @@
 #include "config.h"
 #include <queue>
 
-// Constants
+/** @name System Constants
+ *  @{
+ */
 const unsigned long RESET_HOLD_TIME = 5000;
 const char *NTP_SERVER = "pool.ntp.org";
 const long GMT_OFFSET_SEC = 3600; // GMT+1
 const int DAYLIGHT_OFFSET_SEC = 3600;
+const int DEBOUNCE_DELAY = 250;
+/** @} */
 
-// Globals
+/** @name Global Variables
+ *  @{
+ */
 std::queue<String> buttonLog;
 bool isAccessPointMode = false;
+/** @} */
 
-// Web Server
+/** @name Server Instances
+ *  @{
+ */
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
+/** @} */
 
-// Utility Functions
-void appendToFile(const String &filename, const String &data);
-String readFileContents(const String &filename);
-
-// Initialization Functions
-void setupWebServer();
-void setupNTP();
-bool waitForNTPSync(int maxAttempts = 10);
-
-void handleRootRequest(AsyncWebServerRequest *request);
-void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
-void handleServiceModeRequest(AsyncWebServerRequest *request);
-
-// Structs
+/** @brief Button structure for handling button states and counts */
 struct Button
 {
   const uint8_t PIN;
@@ -45,28 +49,68 @@ struct Button
   bool isPressed;
 };
 
-// Button and Interrupt Functions
 Button button1 = {4, 0, false};
 volatile ulong currentInterruptTime = 0;
 volatile ulong previousInterruptTime = 0;
-const int DEBOUNCE_DELAY = 250;
 
-void IRAM_ATTR onButtonPress();
-
-void handleOnButtonPress();
-
-// Core Functionality
-void processFifoBuffer();
-
+// Function Declarations
+/** @name File Operations
+ *  @{
+ */
+/**
+ * @brief Appends data to a file
+ * @param filename The path to the file
+ * @param data The data to append
+ */
+void appendToFile(const String &filename, const String &data);
+String readFileContents(const String &filename);
+void writeToFile(const String &filename, const String &data);
 unsigned long loadButtonCountFromFile();
+/** @} */
 
-// Setup Function
+/** @name Server Handlers
+ *  @{
+ */
+/**
+ * @brief Handles the root web request
+ * @param request The incoming web request
+ */
+void handleRootRequest(AsyncWebServerRequest *request);
+void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+                          AwsEventType type, void *arg, uint8_t *data, size_t len);
+void handleServiceModeRequest(AsyncWebServerRequest *request);
+/** @} */
+
+/** @name Setup Functions
+ *  @{
+ */
+/**
+ * @brief Initializes the web server
+ */
+void setupWebServer();
+void setupNTP();
+bool waitForNTPSync(int maxAttempts = 10);
+/** @} */
+
+/** @name Button Functions
+ *  @{
+ */
+/**
+ * @brief ISR for button press
+ */
+void IRAM_ATTR onButtonPress();
+void handleOnButtonPress();
+void processFifoBuffer();
+/** @} */
+
+/**
+ * @brief Arduino setup function
+ */
 void setup()
 {
   Serial.begin(115200);
   SPIFFS.begin(true);
 
-  // Initialize WiFiManager
   WiFiManager wm;
   // wm.resetSettings();
 
@@ -82,7 +126,6 @@ void setup()
     Serial.println("Connected to WiFi");
   }
 
-  // Stop WiFiManager web server
   wm.stopConfigPortal();
   delay(1000);
 
@@ -97,7 +140,9 @@ void setup()
   Serial.println("Setup complete");
 }
 
-// Main Loop
+/**
+ * @brief Arduino main loop
+ */
 void loop()
 {
   ws.cleanupClients();
@@ -106,8 +151,9 @@ void loop()
   processFifoBuffer();
 }
 
-// Function Implementations
-
+/**
+ * @brief Handles button press interrupt
+ */
 void IRAM_ATTR onButtonPress()
 {
   currentInterruptTime = millis();
@@ -160,8 +206,9 @@ void processFifoBuffer()
   }
 }
 
-// Web Server setup
-
+/**
+ * @brief Initializes the web server
+ */
 void setupWebServer()
 {
   server.on("/", HTTP_GET, handleRootRequest);
@@ -173,42 +220,17 @@ void setupWebServer()
   Serial.println("Web server started");
 }
 
-// NTP setup
-
-void setupNTP()
-{
-  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
-  if (!waitForNTPSync())
-  {
-    Serial.println("NTP sync failed! Restarting...");
-    ESP.restart();
-  }
-}
-
-bool waitForNTPSync(int maxAttempts)
-{
-  Serial.println("Waiting for NTP sync...");
-  struct tm timeinfo;
-  for (int attempts = 0; attempts < maxAttempts; ++attempts)
-  {
-    if (getLocalTime(&timeinfo))
-    {
-      Serial.println("NTP synchronized successfully!");
-      return true;
-    }
-    delay(1000);
-    Serial.print(".");
-  }
-  Serial.println("\nFailed to sync with NTP server!");
-  return false;
-}
-
+/**
+ * @brief Handles the root web request
+ * @param request The incoming web request
+ */
 void handleRootRequest(AsyncWebServerRequest *request)
 {
   request->send(SPIFFS, "/index.html", "text/html");
 }
 
-void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len)
+void handleWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+                          AwsEventType type, void *arg, uint8_t *data, size_t len)
 {
   if (type == WS_EVT_CONNECT)
   {
@@ -264,8 +286,47 @@ void handleServiceModeRequest(AsyncWebServerRequest *request)
   request->send(400, "text/plain", "Invalid action");
 }
 
-// File handling functions
+/**
+ * @brief Initializes NTP
+ */
+void setupNTP()
+{
+  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
+  if (!waitForNTPSync())
+  {
+    Serial.println("NTP sync failed! Restarting...");
+    ESP.restart();
+  }
+}
 
+/**
+ * @brief Waits for NTP synchronization
+ * @param maxAttempts Maximum number of attempts
+ * @return true if synchronized, false otherwise
+ */
+bool waitForNTPSync(int maxAttempts)
+{
+  Serial.println("Waiting for NTP sync...");
+  struct tm timeinfo;
+  for (int attempts = 0; attempts < maxAttempts; ++attempts)
+  {
+    if (getLocalTime(&timeinfo))
+    {
+      Serial.println("NTP synchronized successfully!");
+      return true;
+    }
+    delay(1000);
+    Serial.print(".");
+  }
+  Serial.println("\nFailed to sync with NTP server!");
+  return false;
+}
+
+/**
+ * @brief Appends data to a file
+ * @param filename The path to the file
+ * @param data The data to append
+ */
 void appendToFile(const String &filename, const String &data)
 {
   File file = SPIFFS.open(filename, FILE_APPEND);
@@ -290,17 +351,6 @@ void writeToFile(const String &filename, const String &data)
   file.close();
 }
 
-ulong loadButtonCountFromFile()
-{
-  String content = readFileContents(config::ButtonLogPath);
-
-  JsonDocument doc;
-
-  deserializeJson(doc, content);
-
-  return doc["buttonPressCount"].as<ulong>();
-}
-
 String readFileContents(const String &filename)
 {
   File file = SPIFFS.open(filename, FILE_READ);
@@ -317,4 +367,15 @@ String readFileContents(const String &filename)
   }
   file.close();
   return content;
+}
+
+unsigned long loadButtonCountFromFile()
+{
+  String content = readFileContents(config::ButtonLogPath);
+
+  JsonDocument doc;
+
+  deserializeJson(doc, content);
+
+  return doc["buttonPressCount"].as<ulong>();
 }
