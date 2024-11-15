@@ -126,8 +126,8 @@ void setup()
     Serial.println("Connected to WiFi");
   }
 
-  wm.stopConfigPortal();
-  delay(1000);
+  // wm.stopConfigPortal();
+  // delay(1000);
 
   setupNTP();
   setupWebServer();
